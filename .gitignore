@@ -1,0 +1,8 @@
+# ===== Build artifacts =====
+build/
+*.o
+*.out
+app
+
+# ===== CSV / data files =====
+*.csv
