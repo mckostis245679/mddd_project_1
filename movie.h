@@ -1,6 +1,6 @@
 #include <string>
 #include <vector>
-
+#pragma once
 struct Movie {
     int id;
     std::string title;
@@ -12,10 +12,10 @@ struct Movie {
     std::string production_company_names;
     double budget;
     double revenue;
-    int runtime;
+    double runtime;
     double popularity;
     double vote_average;
-    int vote_count;
+    double vote_count;
 };
 
 

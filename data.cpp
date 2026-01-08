@@ -52,10 +52,10 @@ std::vector<Movie> readMoviesCSV(const std::string& filename) {
         m.production_company_names = cols[7];
         m.budget = std::stod(cols[8]);
         m.revenue = std::stod(cols[9]);
-        m.runtime = std::stoi(cols[10]);
+        m.runtime = std::stod(cols[10]);
         m.popularity = std::stod(cols[11]);
         m.vote_average = std::stod(cols[12]);
-        m.vote_count = std::stoi(cols[13]);
+        m.vote_count = std::stod(cols[13]);
 
         movies.push_back(std::move(m));
     }
