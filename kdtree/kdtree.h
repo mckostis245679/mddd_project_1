@@ -52,6 +52,30 @@ private:
             return searchRecursive(node->right, point, depth + 1);
     }
 
+
+    void rangeSearchRecursive(vector<Movie*>&  movies,Node* node, const array<double, K>& lower,const array<double, K>& upper, int depth) const {
+
+        if (node == nullptr) return ;
+       bool include=true;
+        for (int i=0;i<K;i++){
+            if (node->point[i] < lower[i] || node->point[i] > upper[i]){
+                include=false;
+                break;
+            }
+        }
+        if (include) movies.push_back(node->movie);
+        
+        int cd = depth % K;
+
+        if (lower[cd] <= node->point[cd]) {
+            rangeSearchRecursive(movies, node->left, lower, upper, depth + 1);
+        }
+
+        if (upper[cd] >= node->point[cd]) {
+            rangeSearchRecursive(movies, node->right, lower, upper, depth + 1);
+        }
+    }
+
     // Recursive function to print the KDTree
     void printRecursive(Node* node, int depth) const {
         // Base case: If node is null, return
@@ -81,8 +105,14 @@ public:
         return searchRecursive(root, point, 0);
     }
 
-    void print() const {
+    void print() {
         printRecursive(root, 0);
+    }
+
+    vector<Movie*> rangeSearch(const array<double, K>& lower,const array<double, K>& upper)  {
+        vector<Movie*> results;
+        rangeSearchRecursive(results, root, lower, upper, 0);
+        return results;
     }
 };
 

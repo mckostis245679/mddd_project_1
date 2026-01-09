@@ -34,5 +34,14 @@ int main() {
     } else {
         cout << "Movie not found!" << endl;
     }
+
+    array<double, 2> lower = {3000.0, 1.0};
+    array<double, 2> upper = {4000.0, 4.0};
+    vector<Movie*> results = tree.rangeSearch(lower, upper);
+    for(int i=0;i<results.size();i++){
+        cout << "Found movie: " << results[i]->title << endl;
+    }
+
+
     return 0;
 }
