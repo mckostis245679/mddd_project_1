@@ -3,23 +3,18 @@
 #include <array>
 #include <cmath>
 #include "../movie.h"
+#include "kdnode.h"
+#include "knn-heap.h"
+
 using namespace std;
 
 // Template class for KDTree with K dimensions
 template <size_t K>
 class KDTree {
 private:
-    // Node structure representing each point in the KDTree
-    struct Node {
-        array<double, K> point;
-        Node* left;
-        Node* right;
-        Movie* movie;
-
-        Node(const array<double, K>& pt, Movie* m) : point(pt), left(nullptr), right(nullptr), movie(m) {}
-    };
-
-
+    using Node = Node<K>;  
+    
+    Heap<K> heap;
     Node* root;
 
     Node* insertRecursive(Node* node, const array<double, K>& point, int depth, Movie* movie) {
@@ -34,37 +29,64 @@ private:
         return node;
     }
 
-        // Recursive function to search for a point in the KDTree
-    Node* nNSearchRecursive(Node* node, const array<double, K>& point, int depth) const {
+        
+    void kNNSearchRecursive(int k,Node* node, const array<double, K>& point, int depth)  {
+        // Base case: If node is null, the point is not found
+        if (node == nullptr) {
+            return ;
+        } 
+        int cd = depth % K;
+        double dist_node_point = dist(node->point, point);
+
+        if (heap.size() < k) {
+            heap.insert(node,dist_node_point);  // fill heap until we have k elements
+        } else if (dist_node_point < heap.getMax().dist) {
+            heap.extractMax();      // remove farthest
+            heap.insert(node,dist_node_point);  // insert closer neighbor
+        }
+
+        // Compare point with current node and decide to go left or right
+        if (point[cd] < node->point[cd]){
+            kNNSearchRecursive(k,node->left, point, depth + 1);
+            if (heap.size() < k || abs(point[cd] - node->point[cd]) < heap.getMax().dist)
+                kNNSearchRecursive(k,node->right, point, depth + 1);
+        }
+        else{
+            kNNSearchRecursive(k,node->right, point, depth + 1);
+            if (heap.size() < k || abs(point[cd] - node->point[cd]) < heap.getMax().dist)
+                kNNSearchRecursive(k,node->left, point, depth + 1);
+        }
+    }
+
+        Node* nNSearchRecursive(Node* node, const array<double, K>& point, int depth) const {
         // Base case: If node is null, the point is not found
         if (node == nullptr) return nullptr;
 
-        // If the current node matches the point, return true
+        
         if (node->point == point) return node;
 
-        // Calculate current dimension (cd)
         int cd = depth % K;
         Node* best;
         Node* candidate= nullptr;
         // Compare point with current node and decide to go left or right
         if (point[cd] < node->point[cd]){
             best=nNSearchRecursive(node->left, point, depth + 1);
-            if (best==nullptr || distance(point, node->point) < distance(point, best->point))
+            if (best==nullptr || dist(point, node->point) < dist(point, best->point))
                 best = node;
-            if (distance(point,best->point) > abs(point[cd]-node->point[cd]))
+            if (dist(point,best->point) > abs(point[cd]-node->point[cd]))
                 candidate=nNSearchRecursive(node->right, point, depth + 1);
  
         }
         else{
             best=nNSearchRecursive(node->right, point, depth + 1);
-            if (best==nullptr || distance(point, node->point) < distance(point, best->point))
+            if (best==nullptr || dist(point, node->point) < dist(point, best->point))
                 best = node;
-            if (distance(point,best->point) > abs(point[cd]-node->point[cd])){
+            if (dist(point,best->point) > abs(point[cd]-node->point[cd])){
                 candidate=nNSearchRecursive(node->left, point, depth + 1);
             }
         }
         
-        if (candidate != nullptr && distance(point, candidate->point) < distance(point,best->point)) {
+        if (candidate != nullptr && dist(point, candidate->point) < dist(point,best->point)) {
             best = candidate;
         }
         return best;
@@ -132,15 +154,14 @@ private:
         printRecursive(node->right, depth + 1);
     }
 
-    static double distance(const array<double, K>& point_a,const array<double, K>& point_b)
+    static double dist(const array<double, K>& point_a,const array<double, K>& point_b)
     {
-        double dist;
-        for (int i=0;i<K;i++){
-            dist=pow(point_a[i],2)+pow(point_b[i],2);
+        double sum = 0;
+        for (int i = 0; i < K; i++) {
+            double diff = point_a[i] - point_b[i];
+            sum += diff * diff;
         }
-        dist = sqrt(dist);                  
-
-        return dist;
+        return sqrt(sum);
     }
 
 public:
@@ -165,6 +186,18 @@ public:
 
     Node* nNSearch(const array<double, K>& point){
         return nNSearchRecursive(root, point, 0);
+    }
+
+    vector<Movie*> kNNSearch(int k,const array<double, K>& point){
+        kNNSearchRecursive(k,root, point, 0);
+        vector<Movie*> results;
+        for (int i=0;i<k;i++){
+            Node* node=heap.extractMax().node;
+            if (node==nullptr) break;
+            results.push_back(node->movie);
+        }
+
+        return results;
     }
 };
 
