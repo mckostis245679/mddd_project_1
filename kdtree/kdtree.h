@@ -34,6 +34,43 @@ private:
         return node;
     }
 
+        // Recursive function to search for a point in the KDTree
+    Node* nNSearchRecursive(Node* node, const array<double, K>& point, int depth) const {
+        // Base case: If node is null, the point is not found
+        if (node == nullptr) return nullptr;
+
+        // If the current node matches the point, return true
+        if (node->point == point) return node;
+
+        // Calculate current dimension (cd)
+        int cd = depth % K;
+        Node* best;
+        Node* candidate= nullptr;
+        // Compare point with current node and decide to go left or right
+        if (point[cd] < node->point[cd]){
+            best=nNSearchRecursive(node->left, point, depth + 1);
+            if (best==nullptr || distance(point, node->point) < distance(point, best->point))
+                best = node;
+            if (distance(point,best->point) > abs(point[cd]-node->point[cd]))
+                candidate=nNSearchRecursive(node->right, point, depth + 1);
+ 
+        }
+        else{
+            best=nNSearchRecursive(node->right, point, depth + 1);
+            if (best==nullptr || distance(point, node->point) < distance(point, best->point))
+                best = node;
+            if (distance(point,best->point) > abs(point[cd]-node->point[cd])){
+                candidate=nNSearchRecursive(node->left, point, depth + 1);
+            }
+        }
+        
+        if (candidate != nullptr && distance(point, candidate->point) < distance(point,best->point)) {
+            best = candidate;
+        }
+        return best;
+    }
+
+
     // Recursive function to search for a point in the KDTree
     Node* searchRecursive(Node* node, const array<double, K>& point, int depth) const {
         // Base case: If node is null, the point is not found
@@ -95,13 +132,24 @@ private:
         printRecursive(node->right, depth + 1);
     }
 
+    static double distance(const array<double, K>& point_a,const array<double, K>& point_b)
+    {
+        double dist;
+        for (int i=0;i<K;i++){
+            dist=pow(point_a[i],2)+pow(point_b[i],2);
+        }
+        dist = sqrt(dist);                  
+
+        return dist;
+    }
+
 public:
     KDTree() : root(nullptr) {}
 
     void insert(const array<double, K>& point,Movie * movie) {
         root = insertRecursive(root, point, 0,movie);
     }
-    Node* search(const array<double, K>& point) const {
+    Node* search(const array<double, K>& point)  {
         return searchRecursive(root, point, 0);
     }
 
@@ -113,6 +161,10 @@ public:
         vector<Movie*> results;
         rangeSearchRecursive(results, root, lower, upper, 0);
         return results;
+    }
+
+    Node* nNSearch(const array<double, K>& point){
+        return nNSearchRecursive(root, point, 0);
     }
 };
 

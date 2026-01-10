@@ -24,7 +24,7 @@ int main() {
     cout << "KD Tree structure:" << endl;
     tree.print();
 
-    array<double, 2> searchPoint = {movies[2].revenue, movies[2].runtime};
+    array<double, 2> searchPoint = {movies[2].revenue+2, movies[2].runtime};
     cout << "\nSearching for movie 3: "
         << (tree.search(searchPoint) ? "Found" : "Not found") << endl;
 
@@ -35,13 +35,18 @@ int main() {
         cout << "Movie not found!" << endl;
     }
 
-    array<double, 2> lower = {3000.0, 1.0};
-    array<double, 2> upper = {4000.0, 4.0};
-    vector<Movie*> results = tree.rangeSearch(lower, upper);
-    for(int i=0;i<results.size();i++){
-        cout << "Found movie: " << results[i]->title << endl;
+    // array<double, 2> lower = {3000.0, 1.0};
+    // array<double, 2> upper = {4000.0, 4.0};
+    // vector<Movie*> results = tree.rangeSearch(lower, upper);
+    // for(int i=0;i<results.size();i++){
+    //     cout << "Found movie: " << results[i]->title << endl;
+    // }
+     result=tree.nNSearch(searchPoint);
+    if(result) {
+        cout << "Found movie: " << result->movie->title << endl;
+    } else {
+        cout << "Movie not found!" << endl;
     }
-
 
     return 0;
 }

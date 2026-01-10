@@ -7,3 +7,4 @@ app
 # ===== CSV / data files =====
 *.csv
 *.xlsx
+*.todo
