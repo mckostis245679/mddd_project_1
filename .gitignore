@@ -3,7 +3,7 @@ build/
 *.o
 *.out
 app
-
+*.pdf
 # ===== CSV / data files =====
 *.csv
 *.xlsx
