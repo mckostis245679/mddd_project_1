@@ -6,6 +6,8 @@
 #include "lsh.h"
 #include "range_tree.h"
 #include "r_tree.h"
+#include "quadtree.h"
+
 using namespace std;
 
 
@@ -133,12 +135,47 @@ int main() {
     query.minPoint = {3000.0, 80.0};
     query.maxPoint = {100000.0, 140.0};
 
-    auto results = rtree.rangeQuery(query);
-    for (Movie* m : results) {
+    auto rTreeresults = rtree.rangeQuery(query);
+    for (Movie* m : rTreeresults) {
         if (!m) continue;
         cout << m->title << " | revenue=" << m->revenue << " | runtime=" << m->runtime << "\n";
     }
 
+
+    // QUADTREE
+    cout << "\n=== QUADTREE ===" << endl;
+    
+    // Create quadtree with boundary covering your data range
+    // Adjust these bounds based on your actual data
+    QuadTree<double> quadtree(QuadTree<double>::Boundary(0, 1000000000, 0, 300));
+    
+    // Insert movies
+    for (int i = 0; i < 10000; i++) {
+        quadtree.insert({movies[i].revenue, movies[i].runtime}, &movies[i]);
+    }
+    
+    cout << "Inserted " << quadtree.size() << " movies into quadtree\n";
+    
+    // Point search
+    searchPoint = {3000, 2};
+    Movie* foundMovie = quadtree.search(searchPoint);
+    if (foundMovie) {
+        cout << "Found movie: " << foundMovie->title << endl;
+    } else {
+        cout << "Movie not found at exact point!\n";
+    }
+    
+    // Range query
+    array<double, 2> lower = {3000.0, 80.0};
+    array<double, 2> upper = {100000.0, 140.0};
+    auto quadResults = quadtree.rangeQuery(lower, upper);
+    
+    cout << "\nQuadtree Range Query Results (" << quadResults.size() << " movies):\n";
+    for (int i = 0; i < min(5, (int)quadResults.size()); i++) {
+        cout << quadResults[i]->title 
+             << " | revenue=" << quadResults[i]->revenue 
+             << " | runtime=" << quadResults[i]->runtime << "\n";
+    }
 
 
     return 0;

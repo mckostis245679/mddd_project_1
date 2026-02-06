@@ -72,6 +72,40 @@ private:
     unique_ptr<Node> root;
 
 private:
+    static Number squaredDistancePoint(const array<Number, K>& a,
+                                    const array<Number, K>& b) {
+        Number sum = 0;
+        for (size_t d = 0; d < K; ++d) {
+            Number diff = a[d] - b[d];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+
+    // Squared minimum distance from point to rectangle
+    static Number minDistancePointToRect(const array<Number, K>& point,
+                                        const Rect& rect) {
+        Number sum = 0;
+        for (size_t d = 0; d < K; ++d) {
+            Number v = 0;
+            if (point[d] < rect.minPoint[d]) {
+                v = rect.minPoint[d] - point[d];
+            } else if (point[d] > rect.maxPoint[d]) {
+                v = point[d] - rect.maxPoint[d];
+            } else {
+                v = 0;
+            }
+            sum += v * v;
+        }
+        return sum;
+    }
+
+    // For data leaf stored as point-rectangle, same formula works
+    static Number squaredDistancePointToRect(const array<Number, K>& point,
+                                            const Rect& rect) {
+        return minDistancePointToRect(point, rect);
+    }
+
     // ---------- Geometry ----------
     static bool intersects(const Rect& a, const Rect& b) {
         for (size_t d = 0; d < K; ++d) {
