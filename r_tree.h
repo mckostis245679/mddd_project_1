@@ -7,6 +7,8 @@
 #include <memory>
 #include <vector>
 #include "movie.h"
+#include <queue>
+#include <cmath>
 
 using namespace std;
 
@@ -67,6 +69,74 @@ public:
         rangeQueryRecursive(root.get(), query, results);
         return results;
     }
+
+    vector<Movie*> kNearest(const array<Number, K>& queryPoint, int k) const {
+        vector<Movie*> result;
+        if (!root || k <= 0) return result;
+
+        // Min-heap for nodes to explore: (mindist_to_node_bounds, node*)
+        struct NodeQueueItem {
+            Number distance;
+            const Node* node;
+            bool operator>(const NodeQueueItem& other) const {
+                return distance > other.distance;
+            }
+        };
+        priority_queue<NodeQueueItem, vector<NodeQueueItem>, greater<NodeQueueItem>> toExplore;
+
+        // Max-heap for best movies found: (distance_to_movie, movie*)
+        priority_queue<pair<Number, Movie*>> bestMovies;
+
+        toExplore.push({minDistancePointToRect(queryPoint, root->bounds), root.get()});
+
+        while (!toExplore.empty()) {
+            auto current = toExplore.top();
+            toExplore.pop();
+
+            Number worstBest = ((int)bestMovies.size() < k)
+                ? numeric_limits<Number>::max()
+                : bestMovies.top().first;
+
+            // pruning: if closest possible in this node is worse than current worst best, stop
+            if (current.distance > worstBest) break;
+
+            const Node* node = current.node;
+            if (!node) continue;
+
+            if (isDataLeaf(node)) {
+                Number d = squaredDistancePointToRect(queryPoint, node->bounds); // point-rect, same as point-point if min=max
+                if ((int)bestMovies.size() < k) {
+                    bestMovies.push({d, node->movie});
+                } else if (d < bestMovies.top().first) {
+                    bestMovies.pop();
+                    bestMovies.push({d, node->movie});
+                }
+                continue;
+            }
+
+            for (const auto& child : node->children) {
+                if (!child) continue;
+                Number d = minDistancePointToRect(queryPoint, child->bounds);
+                if ((int)bestMovies.size() < k || d <= bestMovies.top().first) {
+                    toExplore.push({d, child.get()});
+                }
+            }
+        }
+
+        // output nearest first
+        vector<pair<Number, Movie*>> temp;
+        while (!bestMovies.empty()) {
+            temp.push_back(bestMovies.top());
+            bestMovies.pop();
+        }
+        reverse(temp.begin(), temp.end());
+
+        for (auto& item : temp) {
+            if (item.second) result.push_back(item.second);
+        }
+        return result;
+    }
+
 
 private:
     unique_ptr<Node> root;

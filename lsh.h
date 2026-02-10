@@ -24,6 +24,7 @@ public:
         Movie* movie;
     };
 
+    //class builder
     MinHashLSH(int numberOfHashes = 120, int numberOfBands = 20, int shingleSize = 2, uint64_t seed = 42)
         : numHashes(numberOfHashes),
           numBands(numberOfBands),

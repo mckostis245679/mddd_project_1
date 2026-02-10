@@ -124,14 +124,6 @@ public:
         return rangeQuery(range);
     }
     
-    // Find nearest neighbor
-    Movie* nearestNeighbor(const std::array<T, 2>& target) const {
-        Movie* best = nullptr;
-        T bestDist = std::numeric_limits<T>::max();
-        nearestNeighborHelper(target, best, bestDist);
-        return best;
-    }
-    
     // K-nearest neighbors
     std::vector<Movie*> kNNSearch(int k, const std::array<T, 2>& target) const {
         std::vector<std::pair<T, Movie*>> candidates;
@@ -189,24 +181,6 @@ private:
         T dx = a[0] - b[0];
         T dy = a[1] - b[1];
         return std::sqrt(dx * dx + dy * dy);
-    }
-    
-    void nearestNeighborHelper(const std::array<T, 2>& target, 
-                               Movie*& best, T& bestDist) const {
-        for (const auto& p : points) {
-            T dist = distance(target, p.coords);
-            if (dist < bestDist) {
-                bestDist = dist;
-                best = p.movie;
-            }
-        }
-        
-        if (divided) {
-            northeast->nearestNeighborHelper(target, best, bestDist);
-            northwest->nearestNeighborHelper(target, best, bestDist);
-            southeast->nearestNeighborHelper(target, best, bestDist);
-            southwest->nearestNeighborHelper(target, best, bestDist);
-        }
     }
     
     void kNNHelper(const std::array<T, 2>& target,

@@ -5,6 +5,8 @@
 #include <memory>
 #include <vector>
 #include "movie.h"
+#include <queue>
+#include <cmath>
 
 using namespace std;
 
@@ -33,8 +35,76 @@ public:
         rangeQueryRecursive(root.get(), low, high, results);
         return results;
     }
+    
+    vector<Movie*> kNearest(const array<Number, K>& queryPoint, int k) const {
+        vector<Movie*> result;
+        if (!root || k <= 0) return result;
+
+        // max-heap by distance (largest on top), so we keep best k
+        priority_queue<pair<Number, Movie*>> best;
+
+        kNearestRecursive(root.get(), queryPoint, k, best);
+
+        // extract in ascending distance
+        vector<pair<Number, Movie*>> temp;
+        while (!best.empty()) {
+            temp.push_back(best.top());
+            best.pop();
+        }
+        reverse(temp.begin(), temp.end());
+
+        for (auto& item : temp) {
+            if (item.second) result.push_back(item.second);
+        }
+        return result;
+    }
+
 
 private:
+
+    static Number squaredDistancePoint(const array<Number, K>& a,
+                                    const array<Number, K>& b) {
+        Number sum = 0;
+        for (size_t d = 0; d < K; ++d) {
+            Number diff = a[d] - b[d];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+
+    void kNearestRecursive(const Node* node,
+                        const array<Number, K>& queryPoint,
+                        int k,
+                        priority_queue<pair<Number, Movie*>>& best) const {
+        if (!node) return;
+
+        Number dist = squaredDistancePoint(node->point, queryPoint);
+
+        if ((int)best.size() < k) {
+            best.push({dist, node->movie});
+        } else if (dist < best.top().first) {
+            best.pop();
+            best.push({dist, node->movie});
+        }
+
+        size_t dim = node->splitDimension;
+        Number delta = queryPoint[dim] - node->point[dim];
+
+        const Node* nearChild = (delta < 0) ? node->left.get() : node->right.get();
+        const Node* farChild  = (delta < 0) ? node->right.get() : node->left.get();
+
+        // Visit near side first
+        kNearestRecursive(nearChild, queryPoint, k, best);
+
+        // Decide if far side can still contain better points
+        Number axisDist2 = delta * delta;
+        Number worstBest = ((int)best.size() < k) ? numeric_limits<Number>::max() : best.top().first;
+
+        if (axisDist2 <= worstBest) {
+            kNearestRecursive(farChild, queryPoint, k, best);
+        }
+    }
+
     unique_ptr<Node> root;
 
     static bool pointInsideRange(const array<Number, K>& point,

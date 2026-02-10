@@ -2,13 +2,12 @@
 #include <vector>
 #include <stdexcept>
 #include <algorithm>
-#include "kdnode.h"  // Node<K> definition
+#include "movie.h"
 
-template <size_t K>
 class Heap {
 private:
     struct Neighbor {
-        Node<K>* node;  // pointer to KD-tree node
+        Movie* movie;  // pointer to KD-tree node
         double dist;    // distance to the query point
     };
 
@@ -36,9 +35,9 @@ public:
     Heap() = default;
     
     // Insert a neighbor into the heap
-    void insert(Node<K>* node, double dist) {
+    void insert(Movie* movie, double dist) {
         Neighbor n;
-        n.node = node;
+        n.movie = movie;
         n.dist = dist;
 
         array.push_back(n);
@@ -55,7 +54,7 @@ public:
     Neighbor extractMax() {
         if (array.empty()) {
             Neighbor n;
-            n.node = nullptr;
+            n.movie = nullptr;
             n.dist = NULL;   
             return n;
         }
@@ -71,7 +70,7 @@ public:
     Neighbor getMax()  {
         if (array.empty()) {
             Neighbor n;
-            n.node = nullptr;
+            n.movie = nullptr;
             n.dist = NULL;   
             return n;
         }
