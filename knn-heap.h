@@ -3,14 +3,13 @@
 #include <stdexcept>
 #include <algorithm>
 #include "movie.h"
-
+#include "knn-heap.h"
 class Heap {
-private:
+public:
     struct Neighbor {
-        Movie* movie;  // pointer to KD-tree node
+        Movie* movie;  
         double dist;    // distance to the query point
-    };
-
+    };  
     std::vector<Neighbor> array;  
 
     // Helper function to maintain max-heap property
@@ -31,7 +30,8 @@ private:
         }
     }
 
-public:
+
+
     Heap() = default;
     
     // Insert a neighbor into the heap

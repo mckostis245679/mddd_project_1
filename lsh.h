@@ -270,3 +270,5 @@ private:
         return static_cast<double>(intersectionCount) / static_cast<double>(unionCount);
     }
 };
+
+

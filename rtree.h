@@ -12,12 +12,12 @@
 
 using namespace std;
 
-template <size_t K, typename Number = double, size_t MAX_CHILDREN = 8>
-class MovieRTree {
+template <size_t K, size_t MAX_CHILDREN = 8>
+class RTree {
 public:
     struct Rect {
-        array<Number, K> minPoint;
-        array<Number, K> maxPoint;
+        array<double, K> minPoint;
+        array<double, K> maxPoint;
     };
 
     struct Node {
@@ -36,128 +36,17 @@ public:
         }
     };
 
-    MovieRTree() = default;
-
-    void insert(const Rect& rect, Movie* movie) {
-        if (!movie) return;
-
-        if (!root) {
-            // root is a leaf container
-            root = make_unique<Node>(true);
-            auto dataNode = make_unique<Node>(true);
-            dataNode->bounds = rect;
-            dataNode->movie = movie;
-            dataNode->parent = root.get();
-            root->children.push_back(move(dataNode));
-            updateBounds(root.get());
-            return;
-        }
-
-        Node* leafContainer = chooseLeafContainer(root.get(), rect);
-
-        auto dataNode = make_unique<Node>(true);
-        dataNode->bounds = rect;
-        dataNode->movie = movie;
-        dataNode->parent = leafContainer;
-        leafContainer->children.push_back(move(dataNode));
-
-        adjustAfterInsert(leafContainer);
-    }
-
-    vector<Movie*> rangeQuery(const Rect& query) const {
-        vector<Movie*> results;
-        rangeQueryRecursive(root.get(), query, results);
-        return results;
-    }
-
-    vector<Movie*> kNearest(const array<Number, K>& queryPoint, int k) const {
-        vector<Movie*> result;
-        if (!root || k <= 0) return result;
-
-        // Min-heap for nodes to explore: (mindist_to_node_bounds, node*)
-        struct NodeQueueItem {
-            Number distance;
-            const Node* node;
-            bool operator>(const NodeQueueItem& other) const {
-                return distance > other.distance;
-            }
-        };
-        priority_queue<NodeQueueItem, vector<NodeQueueItem>, greater<NodeQueueItem>> toExplore;
-
-        // Max-heap for best movies found: (distance_to_movie, movie*)
-        priority_queue<pair<Number, Movie*>> bestMovies;
-
-        toExplore.push({minDistancePointToRect(queryPoint, root->bounds), root.get()});
-
-        while (!toExplore.empty()) {
-            auto current = toExplore.top();
-            toExplore.pop();
-
-            Number worstBest = ((int)bestMovies.size() < k)
-                ? numeric_limits<Number>::max()
-                : bestMovies.top().first;
-
-            // pruning: if closest possible in this node is worse than current worst best, stop
-            if (current.distance > worstBest) break;
-
-            const Node* node = current.node;
-            if (!node) continue;
-
-            if (isDataLeaf(node)) {
-                Number d = squaredDistancePointToRect(queryPoint, node->bounds); // point-rect, same as point-point if min=max
-                if ((int)bestMovies.size() < k) {
-                    bestMovies.push({d, node->movie});
-                } else if (d < bestMovies.top().first) {
-                    bestMovies.pop();
-                    bestMovies.push({d, node->movie});
-                }
-                continue;
-            }
-
-            for (const auto& child : node->children) {
-                if (!child) continue;
-                Number d = minDistancePointToRect(queryPoint, child->bounds);
-                if ((int)bestMovies.size() < k || d <= bestMovies.top().first) {
-                    toExplore.push({d, child.get()});
-                }
-            }
-        }
-
-        // output nearest first
-        vector<pair<Number, Movie*>> temp;
-        while (!bestMovies.empty()) {
-            temp.push_back(bestMovies.top());
-            bestMovies.pop();
-        }
-        reverse(temp.begin(), temp.end());
-
-        for (auto& item : temp) {
-            if (item.second) result.push_back(item.second);
-        }
-        return result;
-    }
-
+    RTree() = default;
 
 private:
     unique_ptr<Node> root;
 
-private:
-    static Number squaredDistancePoint(const array<Number, K>& a,
-                                    const array<Number, K>& b) {
-        Number sum = 0;
-        for (size_t d = 0; d < K; ++d) {
-            Number diff = a[d] - b[d];
-            sum += diff * diff;
-        }
-        return sum;
-    }
-
     // Squared minimum distance from point to rectangle
-    static Number minDistancePointToRect(const array<Number, K>& point,
-                                        const Rect& rect) {
-        Number sum = 0;
+    static double minDistancePointToRect(const array<double, K>& point,
+                                         const Rect& rect) {
+        double sum = 0;
         for (size_t d = 0; d < K; ++d) {
-            Number v = 0;
+            double v = 0;
             if (point[d] < rect.minPoint[d]) {
                 v = rect.minPoint[d] - point[d];
             } else if (point[d] > rect.maxPoint[d]) {
@@ -170,22 +59,7 @@ private:
         return sum;
     }
 
-    // For data leaf stored as point-rectangle, same formula works
-    static Number squaredDistancePointToRect(const array<Number, K>& point,
-                                            const Rect& rect) {
-        return minDistancePointToRect(point, rect);
-    }
-
     // ---------- Geometry ----------
-    static bool intersects(const Rect& a, const Rect& b) {
-        for (size_t d = 0; d < K; ++d) {
-            if (a.maxPoint[d] < b.minPoint[d] || b.maxPoint[d] < a.minPoint[d]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     static Rect combineRects(const Rect& a, const Rect& b) {
         Rect out;
         for (size_t d = 0; d < K; ++d) {
@@ -195,27 +69,45 @@ private:
         return out;
     }
 
-    static Number volume(const Rect& r) {
-        Number v = static_cast<Number>(1);
-        for (size_t d = 0; d < K; ++d) {
-            v *= max(static_cast<Number>(0), r.maxPoint[d] - r.minPoint[d]);
-        }
-        return v;
-    }
+    static double enlargement(const Rect& current, const Rect& addRect) {
+        auto measure = [](const Rect& r) {
+            double m = 1.0;
+            for (size_t d = 0; d < K; ++d) {
+                m *= max(0.0, r.maxPoint[d] - r.minPoint[d]);
+            }
+            return m;
+        };
 
-    static Number enlargement(const Rect& current, const Rect& addRect) {
         Rect combined = combineRects(current, addRect);
-        return volume(combined) - volume(current);
+        return measure(combined) - measure(current);
     }
 
-    static Number centerDistanceL1(const Rect& a, const Rect& b) {
-        Number sum = 0;
+    static double centerDistanceL1(const Rect& a, const Rect& b) {
+        double sum = 0;
         for (size_t d = 0; d < K; ++d) {
-            Number ca = (a.minPoint[d] + a.maxPoint[d]) / static_cast<Number>(2);
-            Number cb = (b.minPoint[d] + b.maxPoint[d]) / static_cast<Number>(2);
+            double ca = (a.minPoint[d] + a.maxPoint[d]) / static_cast<double>(2);
+            double cb = (b.minPoint[d] + b.maxPoint[d]) / static_cast<double>(2);
             sum += (ca > cb) ? (ca - cb) : (cb - ca);
         }
         return sum;
+    }
+
+    static bool intersects(const Rect& a, const Rect& b) {
+        for (size_t d = 0; d < K; ++d) {
+            if (a.maxPoint[d] < b.minPoint[d] || b.maxPoint[d] < a.minPoint[d]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool equalsRect(const Rect& a, const Rect& b) {
+        for (size_t d = 0; d < K; ++d) {
+            if (a.minPoint[d] != b.minPoint[d] || a.maxPoint[d] != b.maxPoint[d]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ---------- Tree helpers ----------
@@ -254,31 +146,23 @@ private:
         node->bounds = b;
     }
 
-    void updateBoundsUpward(Node* node) {
-        Node* cur = node;
-        while (cur) {
-            updateBounds(cur);
-            cur = cur->parent;
-        }
-    }
-
     Node* chooseLeafContainer(Node* node, const Rect& rect) {
         // If current is leaf container, done
         if (isLeafContainer(node)) return node;
 
         // Otherwise choose best child by minimum enlargement
         size_t bestIndex = 0;
-        Number bestEnl = numeric_limits<Number>::max();
-        Number bestVol = numeric_limits<Number>::max();
+        double bestEnl = numeric_limits<double>::max();
+        double bestTie = numeric_limits<double>::max();
 
         for (size_t i = 0; i < node->children.size(); ++i) {
             const Rect& childRect = node->children[i]->bounds;
-            Number enl = enlargement(childRect, rect);
-            Number vol = volume(childRect);
+            double enl = enlargement(childRect, rect);
+            double tie = centerDistanceL1(childRect, rect);
 
-            if (enl < bestEnl || (enl == bestEnl && vol < bestVol)) {
+            if (enl < bestEnl || (enl == bestEnl && tie < bestTie)) {
                 bestEnl = enl;
-                bestVol = vol;
+                bestTie = tie;
                 bestIndex = i;
             }
         }
@@ -307,10 +191,10 @@ private:
 
         // Pick two seed children (farthest centers)
         size_t seedA = 0, seedB = 1;
-        Number bestDist = -1;
+        double bestDist = -1;
         for (size_t i = 0; i < movedChildren.size(); ++i) {
             for (size_t j = i + 1; j < movedChildren.size(); ++j) {
-                Number dist = centerDistanceL1(movedChildren[i]->bounds, movedChildren[j]->bounds);
+                double dist = centerDistanceL1(movedChildren[i]->bounds, movedChildren[j]->bounds);
                 if (dist > bestDist) {
                     bestDist = dist;
                     seedA = i;
@@ -341,8 +225,8 @@ private:
 
             Rect lb = leftNode->bounds;
             Rect rb = rightNode->bounds;
-            Number enlL = enlargement(lb, movedChildren[i]->bounds);
-            Number enlR = enlargement(rb, movedChildren[i]->bounds);
+            double enlL = enlargement(lb, movedChildren[i]->bounds);
+            double enlR = enlargement(rb, movedChildren[i]->bounds);
 
             if (enlL < enlR) {
                 movedChildren[i]->parent = leftNode.get();
@@ -353,7 +237,8 @@ private:
                 rightNode->children.push_back(move(movedChildren[i]));
                 updateBounds(rightNode.get());
             } else {
-                if (volume(lb) <= volume(rb)) {
+                // tie-break without volume: keep groups more balanced
+                if (leftNode->children.size() <= rightNode->children.size()) {
                     movedChildren[i]->parent = leftNode.get();
                     leftNode->children.push_back(move(movedChildren[i]));
                     updateBounds(leftNode.get());
@@ -416,5 +301,161 @@ private:
         for (const auto& child : node->children) {
             rangeQueryRecursive(child.get(), query, results);
         }
+    }
+
+    Movie* searchRecursive(const Node* node, const Rect& target) const {
+        if (!node) return nullptr;
+
+        if (!intersects(node->bounds, target)) return nullptr;
+
+        if (isDataLeaf(node)) {
+            if (node->movie && equalsRect(node->bounds, target)) {
+                return node->movie;
+            }
+            return nullptr;
+        }
+
+        for (const auto& child : node->children) {
+            Movie* found = searchRecursive(child.get(), target);
+            if (found) return found;
+        }
+
+        return nullptr;
+    }
+
+    void kNearestRecursive(const Node* node,
+                           const std::array<double, K>& target,
+                           size_t k,
+                           Heap& bestMovies) const {
+        if (node == nullptr) {
+            return;
+        }
+
+        // Current pruning threshold (worst distance among current best k)
+        double worstBest;
+        if (bestMovies.size() < k) {
+            worstBest = numeric_limits<double>::max();
+        } else {
+            worstBest = bestMovies.getMax().dist;
+        }
+
+        // Prune whole subtree if even best possible point is too far
+        double nodeMinDist = minDistancePointToRect(target, node->bounds);
+        if (nodeMinDist > worstBest) {
+            return;
+        }
+
+        // If this is a data leaf, evaluate the movie
+        if (isDataLeaf(node)) {
+            double d = minDistancePointToRect(target, node->bounds);
+
+            if (bestMovies.size() < k) {
+                bestMovies.insert(node->movie, d);
+            } else {
+                double currentWorst = bestMovies.getMax().dist;
+                if (d < currentWorst) {
+                    bestMovies.extractMax();
+                    bestMovies.insert(node->movie, d);
+                }
+            }
+            return;
+        }
+
+        // Internal node: collect children that are still promising
+        vector<pair<double, const Node*>> children;
+
+        for (int i = 0; i < node->children.size(); ++i) {
+            const Node* child = node->children[i].get();
+            if (child == nullptr) {
+                continue;
+            }
+
+            double childMinDist = minDistancePointToRect(target, child->bounds);
+
+            if (bestMovies.size() < k) {
+                children.push_back({childMinDist, child});
+            } else {
+                double currentWorst = bestMovies.getMax().dist;
+                if (childMinDist <= currentWorst) {
+                    children.push_back({childMinDist, child});
+                }
+            }
+        }
+
+        // Visit nearest children first
+        sort(children.begin(), children.end(),
+             [](const auto& a, const auto& b) { return a.first < b.first; });
+
+        for (int i = 0; i < children.size(); ++i) {
+            double currentWorst;
+            if (bestMovies.size() < k) {
+                currentWorst = numeric_limits<double>::max();
+            } else {
+                currentWorst = bestMovies.getMax().dist;
+            }
+
+            if (children[i].first > currentWorst) {
+                break;
+            }
+
+            kNearestRecursive(children[i].second, target, k, bestMovies);
+        }
+    }
+
+public:
+    void insert(const Rect& rect, Movie* movie) {
+        if (!movie) return;
+
+        if (!root) {
+            // root is a leaf container
+            root = make_unique<Node>(true);
+            auto dataNode = make_unique<Node>(true);
+            dataNode->bounds = rect;
+            dataNode->movie = movie;
+            dataNode->parent = root.get();
+            root->children.push_back(move(dataNode));
+            updateBounds(root.get());
+            return;
+        }
+
+        Node* leafContainer = chooseLeafContainer(root.get(), rect);
+
+        auto dataNode = make_unique<Node>(true);
+        dataNode->bounds = rect;
+        dataNode->movie = movie;
+        dataNode->parent = leafContainer;
+        leafContainer->children.push_back(move(dataNode));
+
+        adjustAfterInsert(leafContainer);
+    }
+
+    Movie* search(const Rect& rect) const {
+        return searchRecursive(root.get(), rect);
+    }
+
+    vector<Movie*> rangeQuery(const Rect& query) const {
+        vector<Movie*> results;
+        rangeQueryRecursive(root.get(), query, results);
+        return results;
+    }
+
+    vector<Movie*> kNearest(const array<double, K>& target, int k) const {
+        vector<Movie*> result;
+
+        if (root == nullptr || k <= 0) {
+            return result;
+        }
+
+        Heap bestMovies;
+        kNearestRecursive(root.get(), target, static_cast<size_t>(k), bestMovies);
+
+        // bestMovies is max-heap (farthest first), so reverse to get nearest first
+        while (bestMovies.size() > 0) {
+            result.push_back(bestMovies.extractMax().movie);
+        }
+
+        reverse(result.begin(), result.end());
+
+        return result;
     }
 };

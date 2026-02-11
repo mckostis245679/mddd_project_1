@@ -170,6 +170,7 @@ public:
             auto se = southeast->rangeQuery(range);
             auto sw = southwest->rangeQuery(range);
             
+            //insert
             found.insert(found.end(), ne.begin(), ne.end());
             found.insert(found.end(), nw.begin(), nw.end());
             found.insert(found.end(), se.begin(), se.end());

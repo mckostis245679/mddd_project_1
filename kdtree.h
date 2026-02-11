@@ -1,10 +1,11 @@
-// C++ Program to Implement KD Tree
+#pragma once
 #include <iostream>
 #include <array>
 #include <cmath>
-#include "../movie.h"
-#include "kdnode.h"
-#include "../knn-heap.h"
+#include <vector>
+#include <algorithm>
+#include "movie.h"
+#include "knn-heap.h"
 
 using namespace std;
 
@@ -12,8 +13,16 @@ using namespace std;
 template <size_t K>
 class KDTree {
 private:
-    using Node = Node<K>;  
-    
+    struct Node {
+        array<double, K> point;
+        Node* left;
+        Node* right;
+        Movie* movie;
+
+        Node(const array<double, K>& pt, Movie* movie)
+            : point(pt), left(nullptr), right(nullptr), movie(movie) {}
+    };
+
     Heap heap;
     Node* root;
 
@@ -29,35 +38,32 @@ private:
         return node;
     }
 
-        
-    void kNNSearchRecursive(int k,Node* node, const array<double, K>& point, int depth)  {
+    void kNNSearchRecursive(int k, Node* node, const array<double, K>& point, int depth) {
         // Base case: If node is null, the point is not found
         if (node == nullptr) {
-            return ;
-        } 
+            return;
+        }
         int cd = depth % K;
         double dist_node_point = dist(node->point, point);
 
         if (heap.size() < k) {
-            heap.insert(node->movie,dist_node_point);  // fill heap until we have k elements
+            heap.insert(node->movie, dist_node_point);  // fill heap until we have k elements
         } else if (dist_node_point < heap.getMax().dist) {
             heap.extractMax();      // remove farthest
             heap.insert(node->movie, dist_node_point);  // insert closer neighbor
         }
 
         // Compare point with current node and decide to go left or right
-        if (point[cd] < node->point[cd]){
-            kNNSearchRecursive(k,node->left, point, depth + 1);
+        if (point[cd] < node->point[cd]) {
+            kNNSearchRecursive(k, node->left, point, depth + 1);
             if (heap.size() < k || abs(point[cd] - node->point[cd]) < heap.getMax().dist)
-                kNNSearchRecursive(k,node->right, point, depth + 1);
-        }
-        else{
-            kNNSearchRecursive(k,node->right, point, depth + 1);
+                kNNSearchRecursive(k, node->right, point, depth + 1);
+        } else {
+            kNNSearchRecursive(k, node->right, point, depth + 1);
             if (heap.size() < k || abs(point[cd] - node->point[cd]) < heap.getMax().dist)
-                kNNSearchRecursive(k,node->left, point, depth + 1);
+                kNNSearchRecursive(k, node->left, point, depth + 1);
         }
     }
-
 
     // Recursive function to search for a point in the KDTree
     Node* searchRecursive(Node* node, const array<double, K>& point, int depth) const {
@@ -77,19 +83,17 @@ private:
             return searchRecursive(node->right, point, depth + 1);
     }
 
-
-    void rangeSearchRecursive(vector<Movie*>&  movies,Node* node, const array<double, K>& lower,const array<double, K>& upper, int depth) const {
-
-        if (node == nullptr) return ;
-       bool include=true;
-        for (int i=0;i<K;i++){
-            if (node->point[i] < lower[i] || node->point[i] > upper[i]){
-                include=false;
+    void rangeSearchRecursive(vector<Movie*>& movies, Node* node, const array<double, K>& lower, const array<double, K>& upper, int depth) const {
+        if (node == nullptr) return;
+        bool include = true;
+        for (int i = 0; i < K; i++) {
+            if (node->point[i] < lower[i] || node->point[i] > upper[i]) {
+                include = false;
                 break;
             }
         }
         if (include) movies.push_back(node->movie);
-        
+
         int cd = depth % K;
 
         if (lower[cd] <= node->point[cd]) {
@@ -120,8 +124,7 @@ private:
         printRecursive(node->right, depth + 1);
     }
 
-    static double dist(const array<double, K>& point_a,const array<double, K>& point_b)
-    {
+    static double dist(const array<double, K>& point_a, const array<double, K>& point_b) {
         double sum = 0;
         for (int i = 0; i < K; i++) {
             double diff = point_a[i] - point_b[i];
@@ -133,13 +136,13 @@ private:
 public:
     KDTree() : root(nullptr) {}
 
-    void insert(const array<double, K>& point,Movie * movie) {
-        root = insertRecursive(root, point, 0,movie);
+    void insert(const array<double, K>& point, Movie* movie) {
+        root = insertRecursive(root, point, 0, movie);
     }
-    
-    Movie* search(const array<double, K>& point)  {
-        Node* node= searchRecursive(root, point, 0);
-        if (node==nullptr)
+
+    Movie* search(const array<double, K>& point) {
+        Node* node = searchRecursive(root, point, 0);
+        if (node == nullptr)
             return nullptr;
         return node->movie;
     }
@@ -148,19 +151,18 @@ public:
         printRecursive(root, 0);
     }
 
-    vector<Movie*> rangeSearch(const array<double, K>& lower,const array<double, K>& upper)  {
+    vector<Movie*> rangeSearch(const array<double, K>& lower, const array<double, K>& upper) {
         vector<Movie*> results;
         rangeSearchRecursive(results, root, lower, upper, 0);
         return results;
     }
 
-
-    vector<Movie*> kNNSearch(int k,const array<double, K>& point){
-        kNNSearchRecursive(k,root, point, 0);
+    vector<Movie*> kNNSearch(int k, const array<double, K>& point) {
+        kNNSearchRecursive(k, root, point, 0);
         vector<Movie*> results;
-        for (int i=0;i<k;i++){
-            Movie* movie=heap.extractMax().movie;
-            if (movie==nullptr) break;
+        for (int i = 0; i < k; i++) {
+            Movie* movie = heap.extractMax().movie;
+            if (movie == nullptr) break;
             results.push_back(movie);
         }
         reverse(results.begin(), results.end()); // nearest -> farthest
@@ -168,4 +170,3 @@ public:
         return results;
     }
 };
-
