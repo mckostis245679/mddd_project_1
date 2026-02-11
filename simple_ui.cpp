@@ -229,96 +229,6 @@ static bool passUSGB_EN_Filter(const Movie& m) {
     return containsCountryCodeUSorGB(m.origin_country) && isEnglishCode(m.original_language);
 }
 
-static void runLSHIntersectionAndPrint(std::vector<Movie>& movies,
-                                       const UIConfig& cfg,
-                                       const std::vector<Movie*>& treeResults) {
-    // Build LSH on selected string fields
-    MinHashLSH lsh(120, 20, 2, 42);
-
-    for (size_t i = 0; i < movies.size(); ++i) {
-        std::string text = buildLSHText(movies[i], cfg.stringFieldIds);
-        if (!text.empty()) lsh.addDocument(&movies[i], text);
-    }
-    lsh.buildIndex();
-
-    // LSH query
-    int topCandidates = std::max(cfg.N * 50, 200);
-    auto lshResults = lsh.query(cfg.lshQuery, topCandidates, 0.0);
-
-    std::vector<MinHashLSH::QueryResult> finalResults;
-    finalResults.reserve(static_cast<size_t>(cfg.N));
-
-    // Handle different search modes
-    if (cfg.searchMode == SearchMode::RANGE_ONLY) {
-        // Range only - return tree results without LSH filtering
-        for (Movie* m : treeResults) {
-            if (!m) continue;
-            MinHashLSH::QueryResult r;
-            r.movie = m;
-            r.jaccardScore = 0.0; // No similarity score for range-only
-            finalResults.push_back(r);
-            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
-        }
-    } else if (cfg.searchMode == SearchMode::LSH_ONLY) {
-        // LSH only - return LSH results without range filtering
-        for (const auto& r : lshResults) {
-            if (!r.movie) continue;
-            if (cfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
-            finalResults.push_back(r);
-            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
-        }
-    } else {
-        // Hybrid - intersection of tree ∩ lsh (preserve LSH order)
-        std::unordered_set<Movie*> allowed(treeResults.begin(), treeResults.end());
-
-        for (const auto& r : lshResults) {
-            if (!r.movie) continue;
-            if (!allowed.count(r.movie)) continue;
-            if (cfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
-
-            finalResults.push_back(r);
-            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
-        }
-    }
-
-    // Print
-    std::cout << "\n================ RESULTS ================\n";
-    if (cfg.searchMode == SearchMode::RANGE_ONLY) {
-        std::cout << "Mode: Range Only\n";
-        std::cout << "Tree candidates: " << treeResults.size() << "\n";
-        std::cout << "Results: " << finalResults.size() << "\n\n";
-    } else if (cfg.searchMode == SearchMode::LSH_ONLY) {
-        std::cout << "Mode: LSH Only\n";
-        std::cout << "LSH candidates : " << lshResults.size() << "\n";
-        std::cout << "Results: " << finalResults.size() << "\n\n";
-    } else {
-        std::cout << "Mode: Hybrid (Range + LSH)\n";
-        std::cout << "Tree candidates: " << treeResults.size() << "\n";
-        std::cout << "LSH candidates : " << lshResults.size() << "\n";
-        std::cout << "Intersection top-" << cfg.N << ": " << finalResults.size() << "\n\n";
-    }
-
-    if (finalResults.empty()) {
-        std::cout << "No results found for this combination.\n";
-        return;
-    }
-
-    std::cout << std::fixed << std::setprecision(4);
-    for (size_t i = 0; i < finalResults.size(); ++i) {
-        Movie* m = finalResults[i].movie;
-        std::cout << (i + 1) << ") "
-                  << m->title
-                  << " | Jaccard=" << finalResults[i].jaccardScore
-                  << " | year=" << releaseYearAsDouble(*m)
-                  << " | pop=" << m->popularity
-                  << " | vote_avg=" << m->vote_average
-                  << " | runtime=" << m->runtime
-                  << " | country=" << m->origin_country
-                  << " | lang=" << m->original_language
-                  << "\n";
-    }
-}
-
 // -------------------- Core Engines --------------------
 template <size_t K>
 static void runSessionWithK(std::vector<Movie>& movies, const UIConfig& cfg) {
@@ -345,42 +255,158 @@ static void runSessionWithK(std::vector<Movie>& movies, const UIConfig& cfg) {
         }
     }
 
-    std::array<double, K> lowerA{}, upperA{};
-    for (size_t d = 0; d < K; ++d) {
-        lowerA[d] = std::min(cfg.lower[d], cfg.upper[d]);
-        upperA[d] = std::max(cfg.lower[d], cfg.upper[d]);
-    }
+    // Build tree ONCE
+    std::cout << "Building tree with " << std::count(valid.begin(), valid.end(), true) << " valid points...\n";
 
-    std::vector<Movie*> treeResults;
+    KDTree<K>* kdTree = nullptr;
+    RTree<K>* rtree = nullptr;
 
     if (cfg.treeType == TreeType::KD) {
-        KDTree<K> tree;
+        kdTree = new KDTree<K>();
         for (size_t i = 0; i < movies.size(); ++i) {
-            if (valid[i]) tree.insert(points[i], &movies[i]);
+            if (valid[i]) kdTree->insert(points[i], &movies[i]);
         }
-        treeResults = tree.rangeSearch(lowerA, upperA);
-
     } else if (cfg.treeType == TreeType::RTREE) {
-        RTree<K> tree;
+        rtree = new RTree<K>();
         for (size_t i = 0; i < movies.size(); ++i) {
             if (!valid[i]) continue;
             typename RTree<K>::Rect rect;
             rect.minPoint = points[i];
             rect.maxPoint = points[i];
-            tree.insert(rect, &movies[i]);
+            rtree->insert(rect, &movies[i]);
         }
-
-        typename RTree<K>::Rect q;
-        q.minPoint = lowerA;
-        q.maxPoint = upperA;
-        treeResults = tree.rangeQuery(q);
-
     } else {
         std::cerr << "Invalid tree type for runSessionWithK.\n";
         return;
     }
 
-    runLSHIntersectionAndPrint(movies, cfg, treeResults);
+    // Build LSH ONCE
+    std::cout << "Building LSH index...\n";
+    MinHashLSH lsh(120, 20, 2, 42);
+    for (size_t i = 0; i < movies.size(); ++i) {
+        std::string text = buildLSHText(movies[i], cfg.stringFieldIds);
+        if (!text.empty()) lsh.addDocument(&movies[i], text);
+    }
+    lsh.buildIndex();
+    std::cout << "Setup complete! Ready to search.\n\n";
+
+    // Search loop
+    UIConfig searchCfg = cfg;
+    while (true) {
+        // Get query parameters
+        std::cout << "\n--- New Search ---\n";
+        std::cout << "Enter range bounds for selected numeric fields:\n";
+        for (int i = 0; i < static_cast<int>(searchCfg.numericFieldIds.size()); ++i) {
+            const int fieldId = searchCfg.numericFieldIds[i];
+            const std::string fname = numericFieldName(fieldId);
+            searchCfg.lower[i] = readDouble("  lower " + fname + ": ");
+            searchCfg.upper[i] = readDouble("  upper " + fname + ": ");
+            if (searchCfg.lower[i] > searchCfg.upper[i])
+                std::swap(searchCfg.lower[i], searchCfg.upper[i]);
+        }
+
+        std::cout << "Enter LSH query string: ";
+        std::getline(std::cin, searchCfg.lshQuery);
+
+        // Perform search using pre-built tree
+        std::array<double, K> lowerA{}, upperA{};
+        for (size_t d = 0; d < K; ++d) {
+            lowerA[d] = std::min(searchCfg.lower[d], searchCfg.upper[d]);
+            upperA[d] = std::max(searchCfg.lower[d], searchCfg.upper[d]);
+        }
+
+        std::vector<Movie*> treeResults;
+        if (cfg.treeType == TreeType::KD) {
+            treeResults = kdTree->rangeSearch(lowerA, upperA);
+        } else if (cfg.treeType == TreeType::RTREE) {
+            typename RTree<K>::Rect q;
+            q.minPoint = lowerA;
+            q.maxPoint = upperA;
+            treeResults = rtree->rangeQuery(q);
+        }
+
+        // Run LSH query and print results
+        int topCandidates = std::max(searchCfg.N * 50, 200);
+        auto lshResults = lsh.query(searchCfg.lshQuery, topCandidates, 0.0);
+
+        std::vector<MinHashLSH::QueryResult> finalResults;
+        finalResults.reserve(static_cast<size_t>(searchCfg.N));
+
+        if (searchCfg.searchMode == SearchMode::RANGE_ONLY) {
+            for (Movie* m : treeResults) {
+                if (!m) continue;
+                MinHashLSH::QueryResult r;
+                r.movie = m;
+                r.jaccardScore = 0.0;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        } else if (searchCfg.searchMode == SearchMode::LSH_ONLY) {
+            for (const auto& r : lshResults) {
+                if (!r.movie) continue;
+                if (searchCfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        } else {
+            std::unordered_set<Movie*> allowed(treeResults.begin(), treeResults.end());
+            for (const auto& r : lshResults) {
+                if (!r.movie) continue;
+                if (!allowed.count(r.movie)) continue;
+                if (searchCfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        }
+
+        // Print results
+        std::cout << "\n================ RESULTS ================\n";
+        if (searchCfg.searchMode == SearchMode::RANGE_ONLY) {
+            std::cout << "Mode: Range Only\n";
+            std::cout << "Tree candidates: " << treeResults.size() << "\n";
+            std::cout << "Results: " << finalResults.size() << "\n\n";
+        } else if (searchCfg.searchMode == SearchMode::LSH_ONLY) {
+            std::cout << "Mode: LSH Only\n";
+            std::cout << "LSH candidates : " << lshResults.size() << "\n";
+            std::cout << "Results: " << finalResults.size() << "\n\n";
+        } else {
+            std::cout << "Mode: Hybrid (Range + LSH)\n";
+            std::cout << "Tree candidates: " << treeResults.size() << "\n";
+            std::cout << "LSH candidates : " << lshResults.size() << "\n";
+            std::cout << "Intersection top-" << searchCfg.N << ": " << finalResults.size() << "\n\n";
+        }
+
+        if (finalResults.empty()) {
+            std::cout << "No results found for this combination.\n";
+        } else {
+            std::cout << std::fixed << std::setprecision(4);
+            for (size_t i = 0; i < finalResults.size(); ++i) {
+                Movie* m = finalResults[i].movie;
+                std::cout << (i + 1) << ") "
+                          << m->title
+                          << " | Jaccard=" << finalResults[i].jaccardScore
+                          << " | year=" << releaseYearAsDouble(*m)
+                          << " | pop=" << m->popularity
+                          << " | vote_avg=" << m->vote_average
+                          << " | runtime=" << m->runtime
+                          << " | country=" << m->origin_country
+                          << " | lang=" << m->original_language
+                          << "\n";
+            }
+        }
+
+        // Ask to continue
+        std::cout << "\nSearch again? (y/n): ";
+        std::string again;
+        std::getline(std::cin, again);
+        if (again.empty() || (again[0] != 'y' && again[0] != 'Y')) {
+            break;
+        }
+    }
+
+    // Cleanup
+    delete kdTree;
+    delete rtree;
 }
 
 static void runSession2D(std::vector<Movie>& movies, const UIConfig& cfg) {
@@ -389,15 +415,6 @@ static void runSession2D(std::vector<Movie>& movies, const UIConfig& cfg) {
         std::cerr << "Internal error: 2D session needs exactly 2 numeric fields.\n";
         return;
     }
-
-    std::array<double, 2> lowerA = {
-        std::min(cfg.lower[0], cfg.upper[0]),
-        std::min(cfg.lower[1], cfg.upper[1])
-    };
-    std::array<double, 2> upperA = {
-        std::max(cfg.lower[0], cfg.upper[0]),
-        std::max(cfg.lower[1], cfg.upper[1])
-    };
 
     std::vector<std::array<double, 2>> points(movies.size());
     std::vector<bool> valid(movies.size(), false);
@@ -428,36 +445,157 @@ static void runSession2D(std::vector<Movie>& movies, const UIConfig& cfg) {
         return;
     }
 
-    std::vector<Movie*> treeResults;
+    // Build tree ONCE
+    std::cout << "Building tree with " << std::count(valid.begin(), valid.end(), true) << " valid points...\n";
+
+    QuadTree* qt = nullptr;
+    RangeTree2D* rt = nullptr;
 
     if (cfg.treeType == TreeType::QUADTREE) {
-        // world bounds with tiny padding
         const double padX = std::max(1e-9, (maxX - minX) * 1e-6);
         const double padY = std::max(1e-9, (maxY - minY) * 1e-6);
-
         QuadTree::Boundary world(minX - padX, maxX + padX, minY - padY, maxY + padY);
-        QuadTree qt(world);
-
+        qt = new QuadTree(world);
         for (size_t i = 0; i < movies.size(); ++i) {
-            if (valid[i]) qt.insert(points[i], &movies[i]);
+            if (valid[i]) qt->insert(points[i], &movies[i]);
         }
-
-        treeResults = qt.rangeQuery(lowerA, upperA);
-
     } else if (cfg.treeType == TreeType::RANGETREE2D) {
-        RangeTree2D rt;
+        rt = new RangeTree2D();
         for (size_t i = 0; i < movies.size(); ++i) {
-            if (valid[i]) rt.insert(points[i], &movies[i]);
+            if (valid[i]) rt->insert(points[i], &movies[i]);
         }
-
-        treeResults = rt.rangeSearch(lowerA, upperA);
-
     } else {
         std::cerr << "Invalid tree type for 2D session.\n";
         return;
     }
 
-    runLSHIntersectionAndPrint(movies, cfg, treeResults);
+    // Build LSH ONCE
+    std::cout << "Building LSH index...\n";
+    MinHashLSH lsh(120, 20, 2, 42);
+    for (size_t i = 0; i < movies.size(); ++i) {
+        std::string text = buildLSHText(movies[i], cfg.stringFieldIds);
+        if (!text.empty()) lsh.addDocument(&movies[i], text);
+    }
+    lsh.buildIndex();
+    std::cout << "Setup complete! Ready to search.\n\n";
+
+    // Search loop
+    UIConfig searchCfg = cfg;
+    while (true) {
+        // Get query parameters
+        std::cout << "\n--- New Search ---\n";
+        std::cout << "Enter range bounds for selected numeric fields:\n";
+        for (int i = 0; i < 2; ++i) {
+            const int fieldId = searchCfg.numericFieldIds[i];
+            const std::string fname = numericFieldName(fieldId);
+            searchCfg.lower[i] = readDouble("  lower " + fname + ": ");
+            searchCfg.upper[i] = readDouble("  upper " + fname + ": ");
+            if (searchCfg.lower[i] > searchCfg.upper[i])
+                std::swap(searchCfg.lower[i], searchCfg.upper[i]);
+        }
+
+        std::cout << "Enter LSH query string: ";
+        std::getline(std::cin, searchCfg.lshQuery);
+
+        // Perform search using pre-built tree
+        std::array<double, 2> lowerA = {
+            std::min(searchCfg.lower[0], searchCfg.upper[0]),
+            std::min(searchCfg.lower[1], searchCfg.upper[1])
+        };
+        std::array<double, 2> upperA = {
+            std::max(searchCfg.lower[0], searchCfg.upper[0]),
+            std::max(searchCfg.lower[1], searchCfg.upper[1])
+        };
+
+        std::vector<Movie*> treeResults;
+        if (cfg.treeType == TreeType::QUADTREE) {
+            treeResults = qt->rangeQuery(lowerA, upperA);
+        } else if (cfg.treeType == TreeType::RANGETREE2D) {
+            treeResults = rt->rangeSearch(lowerA, upperA);
+        }
+
+        // Run LSH query and print results
+        int topCandidates = std::max(searchCfg.N * 50, 200);
+        auto lshResults = lsh.query(searchCfg.lshQuery, topCandidates, 0.0);
+
+        std::vector<MinHashLSH::QueryResult> finalResults;
+        finalResults.reserve(static_cast<size_t>(searchCfg.N));
+
+        if (searchCfg.searchMode == SearchMode::RANGE_ONLY) {
+            for (Movie* m : treeResults) {
+                if (!m) continue;
+                MinHashLSH::QueryResult r;
+                r.movie = m;
+                r.jaccardScore = 0.0;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        } else if (searchCfg.searchMode == SearchMode::LSH_ONLY) {
+            for (const auto& r : lshResults) {
+                if (!r.movie) continue;
+                if (searchCfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        } else {
+            std::unordered_set<Movie*> allowed(treeResults.begin(), treeResults.end());
+            for (const auto& r : lshResults) {
+                if (!r.movie) continue;
+                if (!allowed.count(r.movie)) continue;
+                if (searchCfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+                finalResults.push_back(r);
+                if (static_cast<int>(finalResults.size()) >= searchCfg.N) break;
+            }
+        }
+
+        // Print results
+        std::cout << "\n================ RESULTS ================\n";
+        if (searchCfg.searchMode == SearchMode::RANGE_ONLY) {
+            std::cout << "Mode: Range Only\n";
+            std::cout << "Tree candidates: " << treeResults.size() << "\n";
+            std::cout << "Results: " << finalResults.size() << "\n\n";
+        } else if (searchCfg.searchMode == SearchMode::LSH_ONLY) {
+            std::cout << "Mode: LSH Only\n";
+            std::cout << "LSH candidates : " << lshResults.size() << "\n";
+            std::cout << "Results: " << finalResults.size() << "\n\n";
+        } else {
+            std::cout << "Mode: Hybrid (Range + LSH)\n";
+            std::cout << "Tree candidates: " << treeResults.size() << "\n";
+            std::cout << "LSH candidates : " << lshResults.size() << "\n";
+            std::cout << "Intersection top-" << searchCfg.N << ": " << finalResults.size() << "\n\n";
+        }
+
+        if (finalResults.empty()) {
+            std::cout << "No results found for this combination.\n";
+        } else {
+            std::cout << std::fixed << std::setprecision(4);
+            for (size_t i = 0; i < finalResults.size(); ++i) {
+                Movie* m = finalResults[i].movie;
+                std::cout << (i + 1) << ") "
+                          << m->title
+                          << " | Jaccard=" << finalResults[i].jaccardScore
+                          << " | year=" << releaseYearAsDouble(*m)
+                          << " | pop=" << m->popularity
+                          << " | vote_avg=" << m->vote_average
+                          << " | runtime=" << m->runtime
+                          << " | country=" << m->origin_country
+                          << " | lang=" << m->original_language
+                          << "\n";
+            }
+        }
+
+        // Ask to continue
+        std::cout << "\nSearch again? (y/n): ";
+        std::string again;
+        std::getline(std::cin, again);
+        if (again.empty() || (again[0] != 'y' && again[0] != 'Y')) {
+            break;
+        }
+    }
+
+    // Cleanup
+    delete qt;
+    delete rt;
 }
 
 // -------------------- Public UI Entry --------------------
@@ -512,19 +650,6 @@ void runHybridSearchUI(std::vector<Movie>& movies) {
         std::cout << "Invalid selection. Try again.\n";
     }
 
-    cfg.lower.resize(static_cast<size_t>(cfg.k));
-    cfg.upper.resize(static_cast<size_t>(cfg.k));
-
-    std::cout << "\nEnter range bounds for selected numeric fields:\n";
-    for (int i = 0; i < cfg.k; ++i) {
-        const int fieldId = cfg.numericFieldIds[i];
-        const std::string fname = numericFieldName(fieldId);
-
-        cfg.lower[i] = readDouble("  lower " + fname + ": ");
-        cfg.upper[i] = readDouble("  upper " + fname + ": ");
-        if (cfg.lower[i] > cfg.upper[i]) std::swap(cfg.lower[i], cfg.upper[i]);
-    }
-
     std::cout << "\nAvailable LSH string fields:\n";
     for (int id = 1; id <= 5; ++id) {
         std::cout << "  " << id << ") " << stringFieldName(id) << "\n";
@@ -552,12 +677,9 @@ void runHybridSearchUI(std::vector<Movie>& movies) {
         std::cout << "Invalid selection. Try again.\n";
     }
 
-    std::cout << "Enter LSH query string: ";
-    std::getline(std::cin, cfg.lshQuery);
+    cfg.N = readInt("\nEnter N (top-N intersection results): ", 1, 1000);
 
-    cfg.N = readInt("Enter N (top-N intersection results): ", 1, 1000);
-
-    // Read search mode: 'h' = hybrid, 'r' = range only, 'l' = LSH only
+    std::cout << "Search mode [h=Hybrid (default), r=Range only, l=LSH only]: ";
     std::string modeInput;
     std::getline(std::cin, modeInput);
 
@@ -573,6 +695,9 @@ void runHybridSearchUI(std::vector<Movie>& movies) {
     } else {
         cfg.searchMode = SearchMode::HYBRID;
     }
+
+    cfg.lower.resize(static_cast<size_t>(cfg.k));
+    cfg.upper.resize(static_cast<size_t>(cfg.k));
 
     cfg.enforceUSGB_EN = false;
 

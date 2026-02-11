@@ -55,7 +55,44 @@ class MovieSearchGUI:
         self.string_vars = {}
         self.range_entries = {}
 
+        # Start server process
+        self.server_process = None
+        self.start_server()
+
         self.create_widgets()
+
+    def start_server(self):
+        """Start the C++ search server once"""
+        try:
+            self.server_process = subprocess.Popen(
+                ['./search_server'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                cwd='/home/chris/uni/mddd_project_1'
+            )
+
+            # Wait for READY signal
+            ready_line = self.server_process.stdout.readline()
+            if ready_line.strip() != "READY":
+                raise Exception("Server failed to start")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start search server: {e}")
+            raise
+
+    def stop_server(self):
+        """Stop the search server"""
+        if self.server_process:
+            try:
+                self.server_process.stdin.write("QUIT\n")
+                self.server_process.stdin.flush()
+                self.server_process.wait(timeout=5)
+            except:
+                self.server_process.kill()
+            self.server_process = None
 
     def create_widgets(self):
         # Main container
@@ -298,34 +335,49 @@ class MovieSearchGUI:
         return stats, results_section
 
     def run_search(self, config: Dict):
-        """Execute C++ search program with given configuration"""
-        input_str = self.generate_cpp_input(config)
+        """Execute search using persistent C++ server"""
+        if not self.server_process:
+            self.display_error("Server not running")
+            self.search_btn.config(state="normal")
+            return
+
         search_mode = config.get('search_mode', 'Hybrid')
 
         try:
-            process = subprocess.Popen(
-                ['./executable'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd='/home/chris/uni/mddd_project_1'
-            )
+            # Send SEARCH command
+            self.server_process.stdin.write("SEARCH\n")
 
-            stdout, stderr = process.communicate(input=input_str, timeout=120)
+            # Send configuration
+            input_str = self.generate_cpp_input(config)
+            self.server_process.stdin.write(input_str)
+            self.server_process.stdin.flush()
 
-            if process.returncode != 0:
-                self.display_error(f"Error: {stderr}")
+            # Read response until END marker
+            response_lines = []
+            while True:
+                line = self.server_process.stdout.readline()
+                if not line or line.strip() == "END":
+                    break
+                response_lines.append(line)
+
+            output = ''.join(response_lines)
+
+            if output.startswith("ERROR"):
+                self.display_error(f"Server error: {output}")
                 return
 
-            stats, results = self.parse_cpp_output(stdout)
+            stats, results = self.parse_cpp_output(output)
             stats['mode'] = search_mode
             self.display_results(stats, results)
 
-        except subprocess.TimeoutExpired:
-            self.display_error("Error: Search timed out (120s)")
         except Exception as e:
             self.display_error(f"Error: {str(e)}")
+            # Restart server on error
+            self.stop_server()
+            try:
+                self.start_server()
+            except:
+                pass
         finally:
             self.search_btn.config(state="normal")
 
@@ -421,6 +473,13 @@ class MovieSearchGUI:
 def main():
     root = tk.Tk()
     app = MovieSearchGUI(root)
+
+    # Cleanup on close
+    def on_closing():
+        app.stop_server()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
 
 
