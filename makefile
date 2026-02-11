@@ -30,8 +30,8 @@ BENCH_SAMPLE_OBJS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(BENCH_SAMPLE_SRCS))
 SERVER_SRCS = search_server.cpp data.cpp
 SERVER_OBJS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(SERVER_SRCS))
 
-# Default rule
-all: $(TARGET)
+# Default rule - build all executables
+all: $(TARGET) $(BENCHMARK_TARGET) $(BENCH_SAMPLE_TARGET) $(SERVER_TARGET)
 
 # Link main executable
 $(TARGET): $(MAIN_OBJS)
