@@ -1,8 +1,8 @@
 # Compiler
 CXX = g++
 
-# Compiler flags
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2
+# Compiler flags - Compatible with older systems
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -static-libstdc++ -static-libgcc
 
 # Target executable
 TARGET = executable
@@ -36,3 +36,24 @@ clean:
 
 # Rebuild everything
 rebuild: clean all
+
+# Check system info
+info:
+	@echo "=== System Information ==="
+	@echo "Compiler: $(CXX)"
+	@$(CXX) --version | head -n 1
+	@echo "C++ Standard: C++17"
+	@echo "GLIBC version:"
+	@ldd --version | head -n 1
+	@echo "=========================="
+
+# Help
+help:
+	@echo "Available targets:"
+	@echo "  make          - Build the executable"
+	@echo "  make clean    - Remove build files"
+	@echo "  make rebuild  - Clean and rebuild"
+	@echo "  make info     - Show system information"
+	@echo "  make help     - Show this help"
+
+.PHONY: all clean rebuild info help

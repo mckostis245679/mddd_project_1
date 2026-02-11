@@ -23,6 +23,8 @@
 // -------------------- UI Config --------------------
 enum class TreeType { KD = 1, RTREE = 2, QUADTREE = 3, RANGETREE2D = 4 };
 
+enum class SearchMode { HYBRID = 0, RANGE_ONLY = 1, LSH_ONLY = 2 };
+
 struct UIConfig {
     TreeType treeType = TreeType::KD;
     int k = 2; // used by KD/RTree (2..5), fixed to 2 for QuadTree/RangeTree2D
@@ -36,7 +38,10 @@ struct UIConfig {
     std::string lshQuery;
     int N = 5;
 
-    // Optional post-filter
+    // Search mode
+    SearchMode searchMode = SearchMode::HYBRID;
+
+    // Optional post-filter (deprecated)
     bool enforceUSGB_EN = false;
 };
 
@@ -237,29 +242,61 @@ static void runLSHIntersectionAndPrint(std::vector<Movie>& movies,
     lsh.buildIndex();
 
     // LSH query
-    int topCandidates = std::max(cfg.N * 50, 200); // fetch enough before intersection
+    int topCandidates = std::max(cfg.N * 50, 200);
     auto lshResults = lsh.query(cfg.lshQuery, topCandidates, 0.0);
-
-    // Intersection tree ∩ lsh (preserve LSH order)
-    std::unordered_set<Movie*> allowed(treeResults.begin(), treeResults.end());
 
     std::vector<MinHashLSH::QueryResult> finalResults;
     finalResults.reserve(static_cast<size_t>(cfg.N));
 
-    for (const auto& r : lshResults) {
-        if (!r.movie) continue;
-        if (!allowed.count(r.movie)) continue;
-        if (cfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+    // Handle different search modes
+    if (cfg.searchMode == SearchMode::RANGE_ONLY) {
+        // Range only - return tree results without LSH filtering
+        for (Movie* m : treeResults) {
+            if (!m) continue;
+            MinHashLSH::QueryResult r;
+            r.movie = m;
+            r.jaccardScore = 0.0; // No similarity score for range-only
+            finalResults.push_back(r);
+            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
+        }
+    } else if (cfg.searchMode == SearchMode::LSH_ONLY) {
+        // LSH only - return LSH results without range filtering
+        for (const auto& r : lshResults) {
+            if (!r.movie) continue;
+            if (cfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+            finalResults.push_back(r);
+            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
+        }
+    } else {
+        // Hybrid - intersection of tree ∩ lsh (preserve LSH order)
+        std::unordered_set<Movie*> allowed(treeResults.begin(), treeResults.end());
 
-        finalResults.push_back(r);
-        if (static_cast<int>(finalResults.size()) >= cfg.N) break;
+        for (const auto& r : lshResults) {
+            if (!r.movie) continue;
+            if (!allowed.count(r.movie)) continue;
+            if (cfg.enforceUSGB_EN && !passUSGB_EN_Filter(*r.movie)) continue;
+
+            finalResults.push_back(r);
+            if (static_cast<int>(finalResults.size()) >= cfg.N) break;
+        }
     }
 
     // Print
     std::cout << "\n================ RESULTS ================\n";
-    std::cout << "Tree candidates: " << treeResults.size() << "\n";
-    std::cout << "LSH candidates : " << lshResults.size() << "\n";
-    std::cout << "Intersection top-" << cfg.N << ": " << finalResults.size() << "\n\n";
+    if (cfg.searchMode == SearchMode::RANGE_ONLY) {
+        std::cout << "Mode: Range Only\n";
+        std::cout << "Tree candidates: " << treeResults.size() << "\n";
+        std::cout << "Results: " << finalResults.size() << "\n\n";
+    } else if (cfg.searchMode == SearchMode::LSH_ONLY) {
+        std::cout << "Mode: LSH Only\n";
+        std::cout << "LSH candidates : " << lshResults.size() << "\n";
+        std::cout << "Results: " << finalResults.size() << "\n\n";
+    } else {
+        std::cout << "Mode: Hybrid (Range + LSH)\n";
+        std::cout << "Tree candidates: " << treeResults.size() << "\n";
+        std::cout << "LSH candidates : " << lshResults.size() << "\n";
+        std::cout << "Intersection top-" << cfg.N << ": " << finalResults.size() << "\n\n";
+    }
 
     if (finalResults.empty()) {
         std::cout << "No results found for this combination.\n";
@@ -520,9 +557,24 @@ void runHybridSearchUI(std::vector<Movie>& movies) {
 
     cfg.N = readInt("Enter N (top-N intersection results): ", 1, 1000);
 
-    cfg.enforceUSGB_EN = readYesNo(
-        "Apply extra categorical filter: origin-country in {US,GB} AND original-language == EN"
-    );
+    // Read search mode: 'h' = hybrid, 'r' = range only, 'l' = LSH only
+    std::string modeInput;
+    std::getline(std::cin, modeInput);
+
+    if (!modeInput.empty()) {
+        char mode = std::tolower(static_cast<unsigned char>(modeInput[0]));
+        if (mode == 'r') {
+            cfg.searchMode = SearchMode::RANGE_ONLY;
+        } else if (mode == 'l') {
+            cfg.searchMode = SearchMode::LSH_ONLY;
+        } else {
+            cfg.searchMode = SearchMode::HYBRID;
+        }
+    } else {
+        cfg.searchMode = SearchMode::HYBRID;
+    }
+
+    cfg.enforceUSGB_EN = false;
 
     // Dispatch
     if (cfg.treeType == TreeType::QUADTREE || cfg.treeType == TreeType::RANGETREE2D) {
