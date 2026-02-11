@@ -8,6 +8,7 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -static-libstdc++ -static-libgcc
 TARGET = executable
 BENCHMARK_TARGET = benchmark_runner
 BENCH_SAMPLE_TARGET = benchmark_sample
+SERVER_TARGET = search_server
 
 # Directories
 SRC_DIR = .
@@ -25,6 +26,10 @@ BENCHMARK_OBJS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(BENCHMARK_SRCS))
 BENCH_SAMPLE_SRCS = run_benchmarks_sample.cpp
 BENCH_SAMPLE_OBJS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(BENCH_SAMPLE_SRCS))
 
+# Source files for search server
+SERVER_SRCS = search_server.cpp data.cpp
+SERVER_OBJS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(SERVER_SRCS))
+
 # Default rule
 all: $(TARGET)
 
@@ -40,8 +45,15 @@ $(BENCHMARK_TARGET): $(BENCHMARK_OBJS)
 $(BENCH_SAMPLE_TARGET): $(BENCH_SAMPLE_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+# Link search server executable
+$(SERVER_TARGET): $(SERVER_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
 # Build benchmark target
 benchmark: $(BENCHMARK_TARGET)
+
+# Build search server target
+server: $(SERVER_TARGET)
 
 # Build sample benchmark target
 bench: $(BENCH_SAMPLE_TARGET)
@@ -75,7 +87,7 @@ $(OBJ_DIR):
 
 # Clean build files
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET) $(BENCHMARK_TARGET) $(BENCH_SAMPLE_TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET) $(BENCHMARK_TARGET) $(BENCH_SAMPLE_TARGET) $(SERVER_TARGET)
 
 # Rebuild everything
 rebuild: clean all
@@ -94,6 +106,7 @@ info:
 help:
 	@echo "Available targets:"
 	@echo "  make              - Build the main executable"
+	@echo "  make server       - Build the search server (for Python GUI)"
 	@echo "  make benchmark    - Build the full benchmark runner"
 	@echo "  make bench        - Build the sample benchmark (quick test)"
 	@echo "  make run-benchmark - Run the full benchmark"
@@ -104,4 +117,4 @@ help:
 	@echo "  make info         - Show system information"
 	@echo "  make help         - Show this help"
 
-.PHONY: all benchmark bench run-benchmark run-bench viz clean rebuild info help
+.PHONY: all server benchmark bench run-benchmark run-bench viz clean rebuild info help
