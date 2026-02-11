@@ -1,74 +1,136 @@
-#ifndef QUADTREE_H
-#define QUADTREE_H
+#pragma once
 
 #include <vector>
 #include <array>
 #include <memory>
-#include <limits>
 #include <cmath>
+#include <algorithm> // sort, min
 #include "movie.h"
+#include "knn-heap.h"
 
-template<typename T = double>
+using namespace std;
+
 class QuadTree {
 public:
     struct Point {
-        std::array<T, 2> coords;
+        array<double, 2> coords;
         Movie* movie;
         
-        Point(std::array<T, 2> c, Movie* m) : coords(c), movie(m) {}
+        Point(array<double, 2> c, Movie* m) : coords(c), movie(m) {}
     };
     
     struct Boundary {
-        T minX, maxX, minY, maxY;
+        double minX, maxX, minY, maxY;
         
-        Boundary(T minX = 0, T maxX = 0, T minY = 0, T maxY = 0)
+        Boundary(double minX = 0, double maxX = 0, double minY = 0, double maxY = 0)
             : minX(minX), maxX(maxX), minY(minY), maxY(maxY) {}
         
-        bool contains(const std::array<T, 2>& point) const {
+        bool contains(const array<double, 2>& point) const {
             return point[0] >= minX && point[0] <= maxX &&
                    point[1] >= minY && point[1] <= maxY;
         }
         
         bool intersects(const Boundary& other) const {
             return !(other.minX > maxX || other.maxX < minX ||
-                    other.minY > maxY || other.maxY < minY);
+                     other.minY > maxY || other.maxY < minY);
+        }
+
+        double minDistToBoundary(const array<double, 2>& target) const {
+            double dx = 0.0;
+            if (target[0] < minX) dx = minX - target[0];
+            else if (target[0] > maxX) dx = target[0] - maxX;
+
+            double dy = 0.0;
+            if (target[1] < minY) dy = minY - target[1];
+            else if (target[1] > maxY) dy = target[1] - maxY;
+
+            return sqrt(dx * dx + dy * dy);
         }
     };
 
 private:
     static const int CAPACITY = 4;  // Max points per node before subdividing
-    
+
     Boundary boundary;
-    std::vector<Point> points;
+    vector<Point> points;
     bool divided;
     
-    std::unique_ptr<QuadTree> northeast;
-    std::unique_ptr<QuadTree> northwest;
-    std::unique_ptr<QuadTree> southeast;
-    std::unique_ptr<QuadTree> southwest;
+    unique_ptr<QuadTree> northeast;
+    unique_ptr<QuadTree> northwest;
+    unique_ptr<QuadTree> southeast;
+    unique_ptr<QuadTree> southwest;
     
     void subdivide() {
-        T midX = (boundary.minX + boundary.maxX) / 2;
-        T midY = (boundary.minY + boundary.maxY) / 2;
+        double midX = (boundary.minX + boundary.maxX) / 2.0;
+        double midY = (boundary.minY + boundary.maxY) / 2.0;
         
-        northeast = std::make_unique<QuadTree>(
+        northeast = make_unique<QuadTree>(
             Boundary(midX, boundary.maxX, midY, boundary.maxY));
-        northwest = std::make_unique<QuadTree>(
+        northwest = make_unique<QuadTree>(
             Boundary(boundary.minX, midX, midY, boundary.maxY));
-        southeast = std::make_unique<QuadTree>(
+        southeast = make_unique<QuadTree>(
             Boundary(midX, boundary.maxX, boundary.minY, midY));
-        southwest = std::make_unique<QuadTree>(
+        southwest = make_unique<QuadTree>(
             Boundary(boundary.minX, midX, boundary.minY, midY));
         
         divided = true;
     }
+
+    double distance(const array<double, 2>& a, const array<double, 2>& b) const {
+        double dx = a[0] - b[0];
+        double dy = a[1] - b[1];
+        return sqrt(dx * dx + dy * dy);
+    }
+
+
+
+    void kNNRec(const array<double, 2>& target, int k, Heap& heap) const {
+        // 1) Prune this node if it cannot contain a better candidate
+        if (heap.size() == k) {
+            double bestWorstDistance = heap.getMax().dist;  // current kth nearest distance
+            double MinDistance = boundary.minDistToBoundary(target);
+            if (MinDistance > bestWorstDistance) return;
+        }
+
+        // 2) Check points in this node
+        for (const auto& p : points) {
+            double dist = distance(p.coords, target);
+
+            if (heap.size() < k) {
+                heap.insert(p.movie, dist);
+            } else if (dist < heap.getMax().dist) {
+                heap.extractMax();        // remove current farthest among k best
+                heap.insert(p.movie, dist);  // add better one
+            }
+        }
+
+        if (!divided) return;
+
+        // 3) Visit children in order of increasing min possible distance
+        vector<pair<double, const QuadTree*>> children;
+
+        children.push_back({northeast->boundary.minDistToBoundary(target), northeast.get()});
+        children.push_back({northwest->boundary.minDistToBoundary(target), northwest.get()});
+        children.push_back({southeast->boundary.minDistToBoundary(target), southeast.get()});
+        children.push_back({southwest->boundary.minDistToBoundary(target), southwest.get()});
+
+        sort(children.begin(), children.end(),
+             [](const auto& a, const auto& b) { return a.first < b.first; });
+
+        for (const auto& child : children) {
+            if (heap.size() < k || child.first <= heap.getMax().dist) {
+                child.second->kNNRec(target, k, heap);
+            }
+        }
+    }
+
 
 public:
     QuadTree(Boundary b = Boundary()) 
         : boundary(b), divided(false) {}
     
     // Insert a point
-    bool insert(std::array<T, 2> coords, Movie* movie) {
+    bool insert(array<double, 2> coords, Movie* movie) {
         if (!boundary.contains(coords)) {
             return false;
         }
@@ -89,8 +151,8 @@ public:
     }
     
     // Range query - find all points within a boundary
-    std::vector<Movie*> rangeQuery(const Boundary& range) const {
-        std::vector<Movie*> found;
+    vector<Movie*> rangeQuery(const Boundary& range) const {
+        vector<Movie*> found;
         
         if (!boundary.intersects(range)) {
             return found;
@@ -117,31 +179,31 @@ public:
         return found;
     }
     
-    // Range query using lower and upper bounds (like your other structures)
-    std::vector<Movie*> rangeQuery(const std::array<T, 2>& lower, 
-                                   const std::array<T, 2>& upper) const {
+    // Range query using lower and upper bounds
+    vector<Movie*> rangeQuery(const array<double, 2>& lower, 
+                              const array<double, 2>& upper) const {
         Boundary range(lower[0], upper[0], lower[1], upper[1]);
         return rangeQuery(range);
     }
     
-    // K-nearest neighbors
-    std::vector<Movie*> kNNSearch(int k, const std::array<T, 2>& target) const {
-        std::vector<std::pair<T, Movie*>> candidates;
-        kNNHelper(target, candidates);
-        
-        // Sort by distance
-        std::sort(candidates.begin(), candidates.end(),
-                 [](const auto& a, const auto& b) { return a.first < b.first; });
-        
-        std::vector<Movie*> result;
-        for (int i = 0; i < std::min(k, (int)candidates.size()); i++) {
-            result.push_back(candidates[i].second);
+    vector<Movie*> kNNSearch(int k, const array<double, 2>& target) const {
+        vector<Movie*> results;
+        if (k <= 0) return results;
+
+        Heap heap;  // or KNNHeap heap(k); if your constructor requires k
+
+        kNNRec(target, k, heap);
+
+        while (heap.size() > 0) {
+            results.push_back(heap.extractMax().movie);
         }
-        return result;
+        
+        reverse(results.begin(), results.end()); // nearest -> farthest
+        return results;
     }
     
     // Point search - exact match
-    Movie* search(const std::array<T, 2>& target) const {
+    Movie* search(const array<double, 2>& target) const {
         if (!boundary.contains(target)) {
             return nullptr;
         }
@@ -165,38 +227,4 @@ public:
         
         return nullptr;
     }
-    
-    // Get total number of points
-    int size() const {
-        int count = points.size();
-        if (divided) {
-            count += northeast->size() + northwest->size() +
-                    southeast->size() + southwest->size();
-        }
-        return count;
-    }
-
-private:
-    T distance(const std::array<T, 2>& a, const std::array<T, 2>& b) const {
-        T dx = a[0] - b[0];
-        T dy = a[1] - b[1];
-        return std::sqrt(dx * dx + dy * dy);
-    }
-    
-    void kNNHelper(const std::array<T, 2>& target,
-                   std::vector<std::pair<T, Movie*>>& candidates) const {
-        for (const auto& p : points) {
-            T dist = distance(target, p.coords);
-            candidates.emplace_back(dist, p.movie);
-        }
-        
-        if (divided) {
-            northeast->kNNHelper(target, candidates);
-            northwest->kNNHelper(target, candidates);
-            southeast->kNNHelper(target, candidates);
-            southwest->kNNHelper(target, candidates);
-        }
-    }
 };
-
-#endif // QUADTREE_H

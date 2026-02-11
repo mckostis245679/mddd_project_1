@@ -136,8 +136,12 @@ public:
     void insert(const array<double, K>& point,Movie * movie) {
         root = insertRecursive(root, point, 0,movie);
     }
-    Node* search(const array<double, K>& point)  {
-        return searchRecursive(root, point, 0);
+    
+    Movie* search(const array<double, K>& point)  {
+        Node* node= searchRecursive(root, point, 0);
+        if (node==nullptr)
+            return nullptr;
+        return node->movie;
     }
 
     void print() {
@@ -159,6 +163,7 @@ public:
             if (movie==nullptr) break;
             results.push_back(movie);
         }
+        reverse(results.begin(), results.end()); // nearest -> farthest
 
         return results;
     }
